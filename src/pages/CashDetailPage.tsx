@@ -256,7 +256,7 @@ export default function CashDetailPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v: number) => fmt(v)} />
+                    <Tooltip formatter={(v: any) => fmt(Number(v))} />
                     <Line type="monotone" dataKey="valeur" stroke="#16a34a" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>

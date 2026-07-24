@@ -15,11 +15,6 @@ import {
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const isToday = (iso: string) => iso.slice(0, 10) === todayStr();
-const isThisMonth = (iso: string) => {
-  const d = new Date(iso);
-  const n = new Date();
-  return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
-};
 
 export default function CashPage() {
   const fmt = useCurrencyFormatter();
@@ -67,7 +62,6 @@ export default function CashPage() {
   const chiffreAffaires = sales.reduce((s, v) => s + v.total_amount, 0);
 
   const totalAchats = purchases.reduce((s, p) => s + p.total_amount, 0);
-  const totalDepenses = expenses.reduce((s, e) => s + e.amount, 0);
   const depensesSurBenefice = expenses.filter((e) => e.source === "benefice").reduce((s, e) => s + e.amount, 0);
   const benefice = chiffreAffaires - totalAchats - depensesSurBenefice;
 
