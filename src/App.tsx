@@ -21,6 +21,7 @@ import SettingsPage from "./pages/SettingsPage";
 import CashDetailPage from "./pages/CashDetailPage";
 import { SettingsProvider } from "./context/SettingsContext";
 import OptimizationPage from "./pages/OptimizationPage";
+import InstallPrompt from "./components/InstallPrompt";
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -64,6 +65,7 @@ function App() {
     <AuthProvider>
       <SettingsProvider>
         <AppContent />
+        <InstallPrompt />
       </SettingsProvider>
     </AuthProvider>
   );

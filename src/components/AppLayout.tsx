@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -14,10 +14,10 @@ import {
   FileBarChart,
   Archive,
   Settings,
-  TrendingUp,
   LogOut,
   Menu,
   X,
+  ArrowLeft,
 } from "lucide-react";
 
 const links = [
@@ -34,13 +34,13 @@ const links = [
   { to: "/rapports", label: "Rapports", icon: FileBarChart },
   { to: "/dashboard", label: "Inventaire", icon: Archive },
   { to: "/parametres", label: "Paramètres", icon: Settings },
-  { to: "/optimisation", label: "Optimisation", icon: TrendingUp },
 ];
 
 export default function AppLayout() {
   const { user, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <div className="min-h-screen flex bg-green-50">
@@ -148,12 +148,23 @@ export default function AppLayout() {
       {/* Contenu principal */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-          <button
-            onClick={() => navigate("/")}
-            className="text-base font-bold text-green-800 hover:opacity-70 transition-opacity"
-          >
-            ProD EGG BIO
-          </button>
+          <div className="flex items-center gap-2">
+            {location.pathname !== "/" && (
+              <button
+                onClick={() => navigate(-1)}
+                className="p-1 -ml-1 text-green-800 hover:opacity-70 transition-opacity"
+                aria-label="Retour"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
+            <button
+              onClick={() => navigate("/")}
+              className="text-base font-bold text-green-800 hover:opacity-70 transition-opacity"
+            >
+              ProD EGG BIO
+            </button>
+          </div>
           <button onClick={() => setMobileOpen(true)}>
             <Menu size={22} className="text-green-800" />
           </button>
