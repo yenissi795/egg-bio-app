@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { Plus, ShoppingCart, X, FileDown } from "lucide-react";
 import { useSettings, useCurrencyFormatter } from "../context/SettingsContext";
 import { buildInvoiceDoc } from "../lib/invoicePdf";
-import logoImg from "../assets/logo.png";
+import logoImg from "../assets/logo.jpg";
 
 interface Client {
   id: string;

@@ -4,7 +4,7 @@ import { Eye, FileDown, Calendar, CalendarDays, CalendarRange, Layers, X } from 
 import { buildReportDoc } from "../lib/reportPdf";
 import type { IndicatorRow, InventoryRow } from "../lib/reportPdf";
 import { useSettings, useCurrencyFormatter } from "../context/SettingsContext";
-import logoImg from "../assets/logo.png";
+import logoImg from "../assets/logo.jpg";
 
 type PeriodType = "day" | "month" | "year" | "all";
 

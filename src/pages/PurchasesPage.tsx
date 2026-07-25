@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { Plus, Package, X, Trash2, FileDown } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { buildInvoiceDoc } from "../lib/invoicePdf";
-import logoImg from "../assets/logo.png";
+import logoImg from "../assets/logo.jpg";
 
 interface Supplier {
   id: string;

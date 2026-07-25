@@ -11,7 +11,7 @@ import tileReports from "../assets/tile-reports.jpg";
 import tileDebtors from "../assets/tile-debtors.jpg";
 import tileSettings from "../assets/tile-settings.jpg";
 import tileDashboard from "../assets/tile-dashboard.jpg";
-import tileOptimisation from "../assets/tile-optimisation.png";
+import tileOptimisation from "../assets/tile-optimisation.jpg";
 
 const modules = [
   { to: "/production", label: "Production", image: tileProducts },
