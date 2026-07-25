@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import tileProducts from "../assets/tile-products.jpg";
+import tileProductionNew from "../assets/production.jpg";
 import tileSales from "../assets/tile-sales.jpg";
 import tilePurchases from "../assets/tile-purchases.jpg";
 import tileClients from "../assets/tile-clients.jpg";
@@ -13,8 +14,9 @@ import tileSettings from "../assets/tile-settings.jpg";
 import tileDashboard from "../assets/tile-dashboard.jpg";
 import tileOptimisation from "../assets/tile-optimisation.jpg";
 
+
 const modules = [
-  { to: "/production", label: "Production", image: tileProducts },
+  { to: "/production", label: "Production", image: tileProductionNew },
   { to: "/produits", label: "Produits", image: tileProducts },
   { to: "/ventes", label: "Ventes", image: tileSales },
   { to: "/caisse", label: "Grande caisse", image: tileBank },
