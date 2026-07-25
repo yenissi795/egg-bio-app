@@ -15,14 +15,12 @@ interface Product {
 
 const productTypes = ["Plaquette d'œufs", "Poussins / Poulettes", "Fientes / Fumier", "Autre"];
 
-const eggCalibres = ["Petit calibre", "Moyen calibre", "Gros calibre", "Extra calibre", "Cassés"];
 const poultrySubtypes = ["Poussins d'un jour", "Poulettes", "Poules réformées"];
 
+// Un seul produit "œufs" par plaquette (plus de distinction petit/moyen/gros/extra),
+// et les œufs cassés restent suivis en unités (œufs), pas en plaquettes.
 const defaultProducts = [
-  { name: "Plaquette d'œufs petit calibre", category: "Plaquette d'œufs", unit: "Plaquette (30 œufs)", sale_price: 2000 },
-  { name: "Plaquette d'œufs moyen calibre", category: "Plaquette d'œufs", unit: "Plaquette (30 œufs)", sale_price: 2200 },
-  { name: "Plaquette d'œufs gros calibre", category: "Plaquette d'œufs", unit: "Plaquette (30 œufs)", sale_price: 2500 },
-  { name: "Plaquette d'œufs extra calibre", category: "Plaquette d'œufs", unit: "Plaquette (30 œufs)", sale_price: 2800 },
+  { name: "Plaquette d'œufs", category: "Plaquette d'œufs", unit: "Plaquette (30 œufs)", sale_price: 2600 },
   { name: "Œufs cassés", category: "Plaquette d'œufs", unit: "Unité", sale_price: 500 },
   { name: "Poules réformées", category: "Poussins / Poulettes", unit: "Tête", sale_price: 3000 },
   { name: "Fientes / Fumier", category: "Fientes / Fumier", unit: "Sac", sale_price: 10000 },
@@ -36,7 +34,7 @@ export default function ProductsPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [productType, setProductType] = useState(productTypes[0]);
-  const [eggCalibre, setEggCalibre] = useState(eggCalibres[0]);
+  const [eggVariant, setEggVariant] = useState<"plaquette" | "casses">("plaquette");
   const [poultrySubtype, setPoultrySubtype] = useState(poultrySubtypes[0]);
   const [customName, setCustomName] = useState("");
   const [customUnit, setCustomUnit] = useState("");
@@ -64,7 +62,7 @@ export default function ProductsPage() {
 
   const resetForm = () => {
     setProductType(productTypes[0]);
-    setEggCalibre(eggCalibres[0]);
+    setEggVariant("plaquette");
     setPoultrySubtype(poultrySubtypes[0]);
     setCustomName("");
     setCustomUnit("");
@@ -79,11 +77,8 @@ export default function ProductsPage() {
   const computeNameAndUnit = (): { name: string; unit: string } | null => {
     if (productType === "Plaquette d'œufs") {
       return {
-        name:
-          eggCalibre === "Cassés"
-            ? "Œufs cassés"
-            : `Plaquette d'œufs ${eggCalibre.toLowerCase()}`,
-        unit: eggCalibre === "Cassés" ? "Unité" : "Plaquette (30 œufs)",
+        name: eggVariant === "casses" ? "Œufs cassés" : "Plaquette d'œufs",
+        unit: eggVariant === "casses" ? "Unité" : "Plaquette (30 œufs)",
       };
     }
     if (productType === "Poussins / Poulettes") {
@@ -144,12 +139,7 @@ export default function ProductsPage() {
 
     if (p.category === "Plaquette d'œufs") {
       setProductType("Plaquette d'œufs");
-      const found = eggCalibres.find((c) =>
-        c === "Cassés"
-          ? p.name === "Œufs cassés"
-          : p.name === `Plaquette d'œufs ${c.toLowerCase()}`
-      );
-      setEggCalibre(found || eggCalibres[0]);
+      setEggVariant(p.name === "Œufs cassés" ? "casses" : "plaquette");
     } else if (p.category === "Poussins / Poulettes") {
       setProductType("Poussins / Poulettes");
       setPoultrySubtype(poultrySubtypes.includes(p.name) ? p.name : poultrySubtypes[0]);
@@ -274,17 +264,14 @@ export default function ProductsPage() {
 
           {productType === "Plaquette d'œufs" && (
             <div>
-              <label className="text-xs font-medium text-gray-500 mb-1 block">Calibre</label>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">Type</label>
               <select
-                value={eggCalibre}
-                onChange={(e) => setEggCalibre(e.target.value)}
+                value={eggVariant}
+                onChange={(e) => setEggVariant(e.target.value as "plaquette" | "casses")}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               >
-                {eggCalibres.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+                <option value="plaquette">Plaquette d'œufs (30 œufs)</option>
+                <option value="casses">Œufs cassés (à l'unité)</option>
               </select>
             </div>
           )}

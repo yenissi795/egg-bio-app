@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useCurrencyFormatter } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
+import { recordSourceMovement } from "../lib/cashFlow";
 import { Plus, Package, X, Trash2, FileDown } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { buildInvoiceDoc } from "../lib/invoicePdf";
@@ -58,11 +59,16 @@ const inputSuggestions: Record<string, string[]> = {
 const unitOptions = ["Kg", "Sac", "Litre", "Unité", "Carton", "Tête"];
 
 const paymentSourceLabels: Record<string, string> = {
-  cash: "Caisse",
-  personal: "Personnel",
-  credit: "Crédit",
-  advance: "Avance fournisseur",
+  cash: "Cash",
+  mobile_money: "Mobile Money",
 };
+
+const sourceOptions = [
+  { value: "caisse", label: "Caisse" },
+  { value: "benefice", label: "Bénéfice" },
+  { value: "credit", label: "Crédit" },
+  { value: "apport_personnel", label: "Apport personnel" },
+];
 
 export default function PurchasesPage() {
   const fmt = useCurrencyFormatter();
@@ -239,6 +245,13 @@ export default function PurchasesPage() {
       owner_id: user?.id,
     });
 
+    await recordSourceMovement(
+      source,
+      Number(amountPaid),
+      user?.id,
+      `Achat — ${finalCategory} (${nextInvoiceNumber})`
+    );
+
     setSaving(false);
     resetForm();
     load();
@@ -269,6 +282,7 @@ export default function PurchasesPage() {
       total: p.total_amount,
       paid: p.amount_paid,
       extraLine: { label: "Mode", value: paymentSourceLabels[p.payment_source] || p.payment_source },
+      remainingDue: Math.max(0, p.total_amount - p.amount_paid),
       company: { name: companyName, subtitle, phone, address, logoUrl: logoImg },
       currency,
     });
@@ -631,8 +645,11 @@ export default function PurchasesPage() {
               onChange={(e) => setSource(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
             >
-              <option value="caisse">Caisse (n'affecte pas le bénéfice)</option>
-              <option value="benefice">Bénéfice (déduit comme charge)</option>
+              {sourceOptions.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
             </select>
           </div>
 

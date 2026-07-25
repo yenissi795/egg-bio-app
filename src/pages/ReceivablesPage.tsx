@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useCurrencyFormatter } from "../context/SettingsContext";
+import { useAuth } from "../context/AuthContext";
 import { DollarSign, Coins, X } from "lucide-react";
 
 interface SaleReceivable {
@@ -24,6 +25,7 @@ interface PurchaseDebt {
 
 export default function ReceivablesPage() {
   const fmt = useCurrencyFormatter();
+  const { user } = useAuth();
   const [sales, setSales] = useState<SaleReceivable[]>([]);
   const [purchases, setPurchases] = useState<PurchaseDebt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,18 @@ export default function ReceivablesPage() {
           newAmountPaid >= current.total_amount ? "paid" : newAmountPaid > 0 ? "partial" : "unpaid";
       }
       await supabase.from(table).update(updatePayload).eq("id", payTarget.id);
+
+      // Le remboursement d'une dette fournisseur est un vrai décaissement de la Grande caisse.
+      // (Côté client, l'encaissement est déjà pris en compte automatiquement via sales.amount_paid.)
+      if (payTarget.type === "purchase") {
+        await supabase.from("cash_transactions").insert({
+          type: "decaissement",
+          amount,
+          reason: "Remboursement dette fournisseur",
+          transaction_date: new Date().toISOString().slice(0, 10),
+          owner_id: user?.id,
+        });
+      }
     }
 
     setPaying(false);

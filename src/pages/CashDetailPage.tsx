@@ -155,12 +155,8 @@ export default function CashDetailPage() {
   if (type === "profit") {
     const netFor = (predicate: (iso: string) => boolean) => {
       const rev = sales.filter((s) => predicate(s.created_at)).reduce((s, v) => s + v.total_amount, 0);
-      const ach = purchases
-        .filter((p) => predicate(p.created_at) && p.source === "benefice")
-        .reduce((s, p) => s + p.total_amount, 0);
-      const dep = expenses
-        .filter((e) => predicate(e.created_at) && e.source === "benefice")
-        .reduce((s, e) => s + e.amount, 0);
+      const ach = purchases.filter((p) => predicate(p.created_at)).reduce((s, p) => s + p.total_amount, 0);
+      const dep = expenses.filter((e) => predicate(e.created_at)).reduce((s, e) => s + e.amount, 0);
       return rev - ach - dep;
     };
     total = netFor(() => true);
@@ -182,12 +178,8 @@ export default function CashDetailPage() {
       };
       const rev = sales.filter((s) => pred(s.created_at)).reduce((s, v) => s + v.total_amount, 0);
       const charges =
-        purchases
-          .filter((p) => pred(p.created_at) && p.source === "benefice")
-          .reduce((s, p) => s + p.total_amount, 0) +
-        expenses
-          .filter((e) => pred(e.created_at) && e.source === "benefice")
-          .reduce((s, e) => s + e.amount, 0);
+        purchases.filter((p) => pred(p.created_at)).reduce((s, p) => s + p.total_amount, 0) +
+        expenses.filter((e) => pred(e.created_at)).reduce((s, e) => s + e.amount, 0);
       monthlyProfitRows.push({ monthDate: d, ca: rev, charges, profit: rev - charges });
       points.push({ date: d.toISOString(), amount: rev - charges, label: monthLabel(d) });
     }

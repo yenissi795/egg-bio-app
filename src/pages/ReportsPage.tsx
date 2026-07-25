@@ -89,12 +89,8 @@ export default function ReportsPage() {
       period === "day" ? isSameDay : period === "month" ? isSameMonth : period === "year" ? isSameYear : () => true;
 
     const ca = sales.filter((s) => predicate(s.created_at)).reduce((s, v) => s + v.total_amount, 0);
-    const ach = purchases
-      .filter((p) => predicate(p.created_at) && p.source === "benefice")
-      .reduce((s, p) => s + p.total_amount, 0);
-    const dep = expenses
-      .filter((e) => predicate(e.created_at) && e.source === "benefice")
-      .reduce((s, e) => s + e.amount, 0);
+    const ach = purchases.filter((p) => predicate(p.created_at)).reduce((s, p) => s + p.total_amount, 0);
+    const dep = expenses.filter((e) => predicate(e.created_at)).reduce((s, e) => s + e.amount, 0);
     const benefice = ca - ach - dep;
     const nbVentes = sales.filter((s) => predicate(s.created_at)).length;
 

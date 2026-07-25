@@ -2,22 +2,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Egg, TrendingDown, Package } from "lucide-react";
 
-const PLAQUETTE = 30;
-
 type Period = "week" | "month" | "year";
 
-const eggProductNames = [
-  "Plaquette d'œufs petit calibre",
-  "Plaquette d'œufs moyen calibre",
-  "Plaquette d'œufs gros calibre",
-  "Plaquette d'œufs extra calibre",
-];
-
 const fmt = (n: number) => n.toLocaleString("fr-FR");
-
-function toPlaquettes(n: number) {
-  return Math.round((n / PLAQUETTE) * 10) / 10;
-}
+const EGG_PRODUCT = "Plaquette d'œufs";
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>("month");
@@ -66,22 +54,37 @@ export default function DashboardPage() {
     return d.getFullYear() === now.getFullYear();
   };
 
-  // --- Entrées par calibre (depuis egg_production) ---
-  const entriesByCalibre: Record<string, number> = { petit: 0, moyen: 0, gros: 0, extra: 0, casses: 0 };
-  eggProd
-    .filter((e) => inPeriod(e.production_date || e.created_at))
-    .forEach((e) => {
-      entriesByCalibre.petit += e.petit;
-      entriesByCalibre.moyen += e.moyen;
-      entriesByCalibre.gros += e.gros;
-      entriesByCalibre.extra += e.extra;
-      entriesByCalibre.casses += e.casses;
+  // --- Plaquettes produites (période) + œufs cassés (info seulement) ---
+  const periodEggProd = eggProd.filter((e) => inPeriod(e.production_date || e.created_at));
+  const plaquettesProduites = periodEggProd.reduce((s, e) => s + (e.plaquettes || 0), 0);
+  const oeufsCassesInfo = periodEggProd.reduce((s, e) => s + (e.casses || 0), 0);
+
+  // --- Plaquettes sorties (ventes, période) ---
+  const plaquettesSorties = saleItems
+    .filter(
+      (si) =>
+        si.sales?.created_at && inPeriod(si.sales.created_at) && si.products?.name === EGG_PRODUCT
+    )
+    .reduce((s, si) => s + si.quantity, 0);
+
+  // --- Stock restant (état actuel, indépendant de la période) ---
+  const eggProduct = products.find((p) => p.name === EGG_PRODUCT);
+  const stockRestant = eggProduct?.quantity || 0;
+
+  // --- Entrées par produit (pour le tableau détail) ---
+  const entriesByProductName: Record<string, number> = { [EGG_PRODUCT]: plaquettesProduites };
+  reforms
+    .filter((r) => inPeriod(r.created_at))
+    .forEach((r) => {
+      entriesByProductName["Poules réformées"] = (entriesByProductName["Poules réformées"] || 0) + r.nb_heads;
+    });
+  manure
+    .filter((m) => inPeriod(m.created_at))
+    .forEach((m) => {
+      entriesByProductName["Fientes / Fumier"] = (entriesByProductName["Fientes / Fumier"] || 0) + m.quantity_kg;
     });
 
-  const totalOeufsProduits =
-    entriesByCalibre.petit + entriesByCalibre.moyen + entriesByCalibre.gros + entriesByCalibre.extra;
-
-  // --- Sorties par produit (depuis sale_items) ---
+  // --- Sorties par produit (toutes ventes, pas juste les œufs) ---
   const exitsByProductName: Record<string, number> = {};
   saleItems
     .filter((si) => si.sales?.created_at && inPeriod(si.sales.created_at))
@@ -90,40 +93,7 @@ export default function DashboardPage() {
       exitsByProductName[name] = (exitsByProductName[name] || 0) + si.quantity;
     });
 
-  const totalOeufsSortis = eggProductNames.reduce((s, n) => s + (exitsByProductName[n] || 0), 0);
-
-  // --- Stock restant (toujours l'état actuel, indépendant de la période) ---
-  const stockRestantOeufs = products
-    .filter((p) => eggProductNames.includes(p.name))
-    .reduce((s, p) => s + p.quantity, 0);
-
-  // --- Entrées par nom de produit (mapping calibre -> nom du produit) ---
-  const calibreToName: Record<string, string> = {
-    petit: "Plaquette d'œufs petit calibre",
-    moyen: "Plaquette d'œufs moyen calibre",
-    gros: "Plaquette d'œufs gros calibre",
-    extra: "Plaquette d'œufs extra calibre",
-  };
-  const entriesByProductName: Record<string, number> = {};
-  Object.entries(calibreToName).forEach(([k, name]) => {
-    entriesByProductName[name] = entriesByCalibre[k];
-  });
-  entriesByProductName["Œufs cassés"] = entriesByCalibre.casses;
-
-  reforms
-    .filter((r) => inPeriod(r.created_at))
-    .forEach((r) => {
-      entriesByProductName["Poules réformées"] = (entriesByProductName["Poules réformées"] || 0) + r.nb_heads;
-    });
-
-  manure
-    .filter((m) => inPeriod(m.created_at))
-    .forEach((m) => {
-      entriesByProductName["Fientes / Fumier"] =
-        (entriesByProductName["Fientes / Fumier"] || 0) + m.quantity_kg;
-    });
-
-  // --- Historique des mouvements (œufs uniquement) ---
+  // --- Historique des mouvements (plaquettes) ---
   interface Movement {
     date: string;
     type: "Entrée" | "Sortie";
@@ -133,27 +103,19 @@ export default function DashboardPage() {
   }
   const movements: Movement[] = [];
 
-  eggProd
-    .filter((e) => inPeriod(e.production_date || e.created_at))
-    .forEach((e) => {
-      const total = e.petit + e.moyen + e.gros + e.extra;
-      if (total > 0) {
-        movements.push({ date: e.created_at, type: "Entrée", label: "Ponte du jour", entree: total, sortie: 0 });
-      }
-    });
+  periodEggProd.forEach((e) => {
+    if (e.plaquettes > 0) {
+      const label = e.casses > 0 ? `Ponte du jour (+ ${e.casses} œuf(s) cassé(s))` : "Ponte du jour";
+      movements.push({ date: e.created_at, type: "Entrée", label, entree: e.plaquettes, sortie: 0 });
+    }
+  });
 
   saleItems
     .filter(
-      (si) => si.sales?.created_at && inPeriod(si.sales.created_at) && eggProductNames.includes(si.products?.name)
+      (si) => si.sales?.created_at && inPeriod(si.sales.created_at) && si.products?.name === EGG_PRODUCT
     )
     .forEach((si) => {
-      movements.push({
-        date: si.sales.created_at,
-        type: "Sortie",
-        label: `Vente — ${si.products?.name}`,
-        entree: 0,
-        sortie: si.quantity,
-      });
+      movements.push({ date: si.sales.created_at, type: "Sortie", label: "Vente", entree: 0, sortie: si.quantity });
     });
 
   movements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -196,51 +158,47 @@ export default function DashboardPage() {
             <div className="stat-card">
               <div className="flex items-center gap-2 mb-1">
                 <Egg size={16} className="text-green-600" />
-                <p className="text-xs text-gray-500">Œufs produits</p>
+                <p className="text-xs text-gray-500">Plaquettes d'œufs produites</p>
               </div>
-              <p className="text-lg font-bold text-gray-800">{fmt(totalOeufsProduits)} œufs</p>
-              <p className="text-xs text-gray-400">≈ {fmt(toPlaquettes(totalOeufsProduits))} plaquette(s)</p>
+              <p className="text-lg font-bold text-gray-800">{fmt(plaquettesProduites)} plaquette(s)</p>
             </div>
             <div className="stat-card">
               <div className="flex items-center gap-2 mb-1">
                 <TrendingDown size={16} className="text-red-500" />
-                <p className="text-xs text-gray-500">Œufs sortis (ventes)</p>
+                <p className="text-xs text-gray-500">Plaquettes sorties (ventes)</p>
               </div>
-              <p className="text-lg font-bold text-gray-800">{fmt(totalOeufsSortis)} œufs</p>
-              <p className="text-xs text-gray-400">≈ {fmt(toPlaquettes(totalOeufsSortis))} plaquette(s)</p>
+              <p className="text-lg font-bold text-gray-800">{fmt(plaquettesSorties)} plaquette(s)</p>
             </div>
             <div className="stat-card">
               <div className="flex items-center gap-2 mb-1">
                 <Package size={16} className="text-blue-600" />
-                <p className="text-xs text-gray-500">Stock restant (œufs)</p>
+                <p className="text-xs text-gray-500">Stock restant</p>
               </div>
-              <p className="text-lg font-bold text-gray-800">{fmt(stockRestantOeufs)} œufs</p>
-              <p className="text-xs text-gray-400">= {fmt(toPlaquettes(stockRestantOeufs))} plaquette(s)</p>
+              <p className="text-lg font-bold text-gray-800">{fmt(stockRestant)} plaquette(s)</p>
             </div>
           </div>
 
+          <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+            Info : {fmt(oeufsCassesInfo)} œuf(s) cassé(s) sur la période — donnée informative uniquement (pour le suivi
+            du taux de casse), ne fait pas partie du stock vendable.
+          </p>
+
           <div className="stat-card overflow-x-auto">
-            <h2 className="font-semibold text-gray-700 text-sm mb-1">Détail par produit</h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Œufs affichés en unités ET en plaquettes de 30. Les autres produits gardent leur unité (tête,
-              sac...).
-            </p>
+            <h2 className="font-semibold text-gray-700 text-sm mb-3">Détail par produit</h2>
             <table className="w-full text-sm border-separate" style={{ borderSpacing: "0 4px" }}>
               <thead>
                 <tr className="text-left text-gray-400 border-b border-gray-100">
                   <th className="pb-2 pr-4 font-medium">Catégorie</th>
                   <th className="pb-2 pr-4 font-medium">Produit</th>
-                  <th className="pb-2 pr-4 font-medium text-right">Entrées (production / achat)</th>
+                  <th className="pb-2 pr-4 font-medium text-right">Entrées (production / réforme)</th>
                   <th className="pb-2 pr-4 font-medium text-right">Sorties (ventes)</th>
                   <th className="pb-2 font-medium text-right">Stock restant</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {products.map((p) => {
-                  const isEgg = eggProductNames.includes(p.name);
                   const entree = entriesByProductName[p.name] || 0;
                   const sortie = exitsByProductName[p.name] || 0;
-                  const unitLabel = isEgg ? "œufs" : p.unit;
                   return (
                     <tr key={p.id}>
                       <td className="py-2 pr-4 text-gray-600">{p.category}</td>
@@ -248,24 +206,13 @@ export default function DashboardPage() {
                         {p.name} <span className="text-gray-400 text-xs">({p.unit})</span>
                       </td>
                       <td className="py-2 pr-4 text-right text-green-700">
-                        +{fmt(entree)} {unitLabel}
-                        {isEgg && (
-                          <div className="text-[10px] text-gray-400">≈ {toPlaquettes(entree)} plaquette(s)</div>
-                        )}
+                        +{fmt(entree)} {p.unit}
                       </td>
                       <td className="py-2 pr-4 text-right text-red-600">
-                        −{fmt(sortie)} {unitLabel}
-                        {isEgg && (
-                          <div className="text-[10px] text-gray-400">≈ {toPlaquettes(sortie)} plaquette(s)</div>
-                        )}
+                        −{fmt(sortie)} {p.unit}
                       </td>
                       <td className="py-2 text-right font-semibold text-gray-800">
-                        {fmt(p.quantity)} {unitLabel}
-                        {isEgg && (
-                          <div className="text-[10px] text-gray-400 font-normal">
-                            = {toPlaquettes(p.quantity)} plaquette(s)
-                          </div>
-                        )}
+                        {fmt(p.quantity)} {p.unit}
                       </td>
                     </tr>
                   );
@@ -275,8 +222,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="stat-card overflow-x-auto">
-            <h2 className="font-semibold text-gray-700 text-sm mb-1">Historique des mouvements — œufs</h2>
-            <p className="text-xs text-gray-400 mb-3">1 plaquette = 30 œufs. Les conversions sont automatiques.</p>
+            <h2 className="font-semibold text-gray-700 text-sm mb-3">Historique des mouvements — Plaquette d'œufs</h2>
             {movements.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">Aucun mouvement sur cette période.</p>
             ) : (
@@ -309,9 +255,7 @@ export default function DashboardPage() {
                       <td className="py-2 pr-4 text-right text-green-700">
                         {m.entree > 0 ? `+${fmt(m.entree)}` : "—"}
                       </td>
-                      <td className="py-2 text-right text-red-600">
-                        {m.sortie > 0 ? `−${fmt(m.sortie)}` : "—"}
-                      </td>
+                      <td className="py-2 text-right text-red-600">{m.sortie > 0 ? `−${fmt(m.sortie)}` : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

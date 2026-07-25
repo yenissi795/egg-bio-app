@@ -61,9 +61,10 @@ export default function CashPage() {
   const chiffreAffaires = sales.reduce((s, v) => s + v.total_amount, 0);
 
   const totalAchats = purchases.reduce((s, p) => s + p.total_amount, 0);
-  const achatsSurBenefice = purchases.filter((p) => p.source === "benefice").reduce((s, p) => s + p.total_amount, 0);
-  const depensesSurBenefice = expenses.filter((e) => e.source === "benefice").reduce((s, e) => s + e.amount, 0);
-  const benefice = chiffreAffaires - achatsSurBenefice - depensesSurBenefice;
+  const totalDepenses = expenses.reduce((s, e) => s + e.amount, 0);
+  // Le Bénéfice reflète TOUTES les charges réelles, peu importe leur source de financement
+  // (Caisse/Crédit/Apport personnel/Bénéfice) — la source ne détermine que l'impact sur la Caisse/le Capital.
+  const beneficeAvantPlafond = chiffreAffaires - totalAchats - totalDepenses;
 
   const capital = cashTx
     .filter((t) => t.type === "injection")
@@ -74,6 +75,10 @@ export default function CashPage() {
     salesTotalPaid +
     cashTx.filter((t) => t.type === "injection" || t.type === "epargne_retrait").reduce((s, t) => s + t.amount, 0) -
     cashTx.filter((t) => t.type === "decaissement" || t.type === "epargne_depot").reduce((s, t) => s + t.amount, 0);
+
+  // Tant que la Caisse est négative, on ne peut pas afficher de bénéfice positif :
+  // le bénéfice doit d'abord servir à combler le déficit.
+  const benefice = caisse < 0 ? Math.min(beneficeAvantPlafond, 0) : beneficeAvantPlafond;
 
   const banque =
     cashTx.filter((t) => t.type === "epargne_depot").reduce((s, t) => s + t.amount, 0) -

@@ -18,6 +18,7 @@ export interface InvoiceData {
   total: number;
   paid: number;
   extraLine: { label: string; value: string }; // "Statut" ou "Mode"
+  remainingDue?: number; // affiché en plus si > 0 ("Reste à payer")
   company: {
     name: string;
     subtitle?: string;
@@ -136,7 +137,19 @@ export async function buildInvoiceDoc(data: InvoiceData): Promise<jsPDF> {
   y += 5;
   doc.text(data.extraLine.label, 6, y);
   doc.text(data.extraLine.value, W - 6, y, { align: "right" });
-  y += 6;
+  y += 5;
+
+  if (data.remainingDue && data.remainingDue > 0) {
+    doc.setTextColor(200, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.text("Reste à payer", 6, y);
+    doc.text(fmt(data.remainingDue), W - 6, y, { align: "right" });
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "normal");
+    y += 6;
+  } else {
+    y += 1;
+  }
 
   doc.setLineDashPattern([1, 1], 0);
   doc.line(6, y, W - 6, y);

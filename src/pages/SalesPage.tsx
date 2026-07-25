@@ -43,8 +43,6 @@ interface SaleItemRow {
 }
 
 const num = (s: string) => (s === "" ? 0 : Number(s)) || 0;
-const EGG_UNIT = "Plaquette (30 œufs)";
-const PLAQUETTE = 30;
 
 export default function SalesPage() {
   const { user } = useAuth();
@@ -59,6 +57,9 @@ export default function SalesPage() {
   const [saving, setSaving] = useState(false);
 
   const [clientId, setClientId] = useState("");
+  const [clientMode, setClientMode] = useState<"existing" | "new">("existing");
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
   const [lines, setLines] = useState<SaleLine[]>([]);
   const [amountPaid, setAmountPaid] = useState("");
 
@@ -93,8 +94,6 @@ export default function SalesPage() {
     load();
   }, []);
 
-  const isEggProduct = (product: Product | undefined) => product?.unit === EGG_UNIT;
-
   const addLine = () => {
     if (products.length === 0) return;
     const first = products[0];
@@ -122,13 +121,20 @@ export default function SalesPage() {
 
   const resetForm = () => {
     setClientId("");
+    setClientMode("existing");
+    setNewClientName("");
+    setNewClientPhone("");
     setLines([]);
     setAmountPaid("");
   };
 
   const handleSave = async () => {
-    if (!clientId) {
+    if (clientMode === "existing" && !clientId) {
       alert("Choisis un client.");
+      return;
+    }
+    if (clientMode === "new" && !newClientName.trim()) {
+      alert("Renseigne le nom du nouveau client.");
       return;
     }
     if (lines.length === 0) {
@@ -138,17 +144,28 @@ export default function SalesPage() {
     for (const l of lines) {
       const product = products.find((p) => p.id === l.productId);
       const enteredQty = num(l.quantity);
-      // Pour les œufs, la quantité saisie = nb de plaquettes ; le stock est suivi en œufs bruts (×30)
-      const stockQty = isEggProduct(product) ? enteredQty * PLAQUETTE : enteredQty;
-      if (product && stockQty > product.quantity) {
-        const available = isEggProduct(product) ? Math.floor(product.quantity / PLAQUETTE) : product.quantity;
-        const unitLabel = isEggProduct(product) ? "plaquette(s)" : product.unit;
-        alert(`Stock insuffisant pour "${product.name}" (disponible : ${available} ${unitLabel}).`);
+      if (product && enteredQty > product.quantity) {
+        alert(`Stock insuffisant pour "${product.name}" (disponible : ${product.quantity} ${product.unit}).`);
         return;
       }
     }
 
     setSaving(true);
+
+    let finalClientId = clientId;
+    if (clientMode === "new") {
+      const { data: newClient, error: clientError } = await supabase
+        .from("clients")
+        .insert({ name: newClientName.trim(), phone: newClientPhone.trim() || null, owner_id: user?.id })
+        .select()
+        .single();
+      if (clientError || !newClient) {
+        alert("Erreur lors de la création du client.");
+        setSaving(false);
+        return;
+      }
+      finalClientId = newClient.id;
+    }
 
     const invoiceNumber = `VNT-${String(sales.length + 1).padStart(5, "0")}`;
     const status = paid >= total ? "paid" : paid > 0 ? "partial" : "unpaid";
@@ -156,7 +173,7 @@ export default function SalesPage() {
     const { data: sale, error: saleError } = await supabase
       .from("sales")
       .insert({
-        client_id: clientId,
+        client_id: finalClientId,
         invoice_number: invoiceNumber,
         total_amount: total,
         amount_paid: paid,
@@ -172,28 +189,21 @@ export default function SalesPage() {
       return;
     }
 
-    const items = lines.map((l) => {
-      const product = products.find((p) => p.id === l.productId);
-      const enteredQty = num(l.quantity);
-      const rawQty = isEggProduct(product) ? enteredQty * PLAQUETTE : enteredQty;
-      return {
-        sale_id: sale.id,
-        product_id: l.productId,
-        quantity: rawQty,
-        unit_price: num(l.unitPrice),
-        owner_id: user?.id,
-      };
-    });
+    const items = lines.map((l) => ({
+      sale_id: sale.id,
+      product_id: l.productId,
+      quantity: num(l.quantity),
+      unit_price: num(l.unitPrice),
+      owner_id: user?.id,
+    }));
     await supabase.from("sale_items").insert(items);
 
     for (const l of lines) {
       const product = products.find((p) => p.id === l.productId);
       if (product) {
-        const enteredQty = num(l.quantity);
-        const rawQty = isEggProduct(product) ? enteredQty * PLAQUETTE : enteredQty;
         await supabase
           .from("products")
-          .update({ quantity: product.quantity - rawQty })
+          .update({ quantity: product.quantity - num(l.quantity) })
           .eq("id", l.productId);
       }
     }
@@ -224,28 +234,18 @@ export default function SalesPage() {
   const summaryFor = (saleId: string) => {
     const items = saleItemsBySale[saleId];
     if (!items || items.length === 0) return "—";
-    return items
-      .map((it) => {
-        const name = it.products?.name || "Produit";
-        const unit = it.products?.unit;
-        if (unit === EGG_UNIT) {
-          const plaquettes = it.quantity / PLAQUETTE;
-          return `${plaquettes}× ${name}`;
-        }
-        return `${it.quantity}× ${name}`;
-      })
-      .join(", ");
+    return items.map((it) => `${it.quantity}× ${it.products?.name || "Produit"}`).join(", ");
   };
 
   const handleInvoice = async (sale: Sale) => {
     const rows = saleItemsBySale[sale.id] || [];
-    const items = rows.map((r) => {
-      const name = r.products?.name || "Produit";
-      const isEgg = r.products?.unit === EGG_UNIT;
-      const qty = isEgg ? r.quantity / PLAQUETTE : r.quantity;
-      const unit = isEgg ? "plaquette(s)" : r.products?.unit || "";
-      return { label: name, quantity: qty, unit, unitPrice: r.unit_price, total: qty * r.unit_price };
-    });
+    const items = rows.map((r) => ({
+      label: r.products?.name || "Produit",
+      quantity: r.quantity,
+      unit: r.products?.unit || "",
+      unitPrice: r.unit_price,
+      total: r.quantity * r.unit_price,
+    }));
 
     const statusLabels: Record<string, string> = { paid: "Payé", partial: "Partiel", unpaid: "Non payé" };
 
@@ -259,6 +259,7 @@ export default function SalesPage() {
       total: sale.total_amount,
       paid: sale.amount_paid,
       extraLine: { label: "Statut", value: statusLabels[sale.payment_status] || sale.payment_status },
+      remainingDue: Math.max(0, sale.total_amount - sale.amount_paid),
       company: { name: companyName, subtitle, phone, address, logoUrl: logoImg },
       currency,
     });
@@ -277,22 +278,60 @@ export default function SalesPage() {
 
         <div>
           <label className="text-xs font-medium text-gray-500 mb-1 block">Client *</label>
-          <select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-          >
-            <option value="">Sélectionner un client</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          {clients.length === 0 && (
-            <p className="text-xs text-amber-600 mt-1">
-              Aucun client enregistré — ajoute-en un dans la section Clients d'abord.
-            </p>
+          <div className="flex gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setClientMode("existing")}
+              className={`flex-1 text-xs font-medium rounded-lg py-2 ${
+                clientMode === "existing" ? "bg-green-600 text-white" : "bg-gray-50 text-gray-600"
+              }`}
+            >
+              Client existant
+            </button>
+            <button
+              type="button"
+              onClick={() => setClientMode("new")}
+              className={`flex-1 text-xs font-medium rounded-lg py-2 ${
+                clientMode === "new" ? "bg-green-600 text-white" : "bg-gray-50 text-gray-600"
+              }`}
+            >
+              + Nouveau client
+            </button>
+          </div>
+
+          {clientMode === "existing" ? (
+            <>
+              <select
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">Sélectionner un client</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {clients.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Aucun client enregistré — bascule sur "+ Nouveau client".</p>
+              )}
+            </>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                placeholder="Nom du client"
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                placeholder="Téléphone (optionnel)"
+                value={newClientPhone}
+                onChange={(e) => setNewClientPhone(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
           )}
         </div>
 
@@ -314,8 +353,6 @@ export default function SalesPage() {
           ) : (
             <div className="space-y-2">
               {lines.map((line, index) => {
-                const product = products.find((p) => p.id === line.productId);
-                const egg = isEggProduct(product);
                 return (
                   <div key={index} className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
@@ -324,16 +361,11 @@ export default function SalesPage() {
                         onChange={(e) => handleProductChange(index, e.target.value)}
                         className="flex-1 min-w-[140px] border border-gray-200 rounded-lg px-2 py-2 text-sm"
                       >
-                        {products.map((p) => {
-                          const stockDisplay =
-                            p.unit === EGG_UNIT ? Math.floor(p.quantity / PLAQUETTE) : p.quantity;
-                          const stockUnit = p.unit === EGG_UNIT ? "plaquettes" : p.unit;
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.name} (stock: {stockDisplay} {stockUnit})
-                            </option>
-                          );
-                        })}
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} (stock: {p.quantity} {p.unit})
+                          </option>
+                        ))}
                       </select>
                       <input
                         type="number"
@@ -358,11 +390,6 @@ export default function SalesPage() {
                         <X size={16} />
                       </button>
                     </div>
-                    {egg && (
-                      <p className="text-[11px] text-gray-400 pl-1">
-                        Quantité en plaquettes de 30 œufs (soit {num(line.quantity) * PLAQUETTE} œufs).
-                      </p>
-                    )}
                   </div>
                 );
               })}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useCurrencyFormatter } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
+import { recordSourceMovement } from "../lib/cashFlow";
 import { Plus, Receipt, X, Trash2 } from "lucide-react";
 
 interface Expense {
@@ -41,13 +42,17 @@ const paymentMethodLabels: Record<string, string> = Object.fromEntries(
 );
 
 const sourceOptions = [
-  { value: "caisse", label: "Caisse (n'affecte pas le bénéfice)" },
-  { value: "benefice", label: "Bénéfice (déduit comme charge)" },
+  { value: "caisse", label: "Caisse" },
+  { value: "benefice", label: "Bénéfice" },
+  { value: "credit", label: "Crédit" },
+  { value: "apport_personnel", label: "Apport personnel" },
 ];
 
 const sourceLabels: Record<string, string> = {
   caisse: "Caisse",
   benefice: "Bénéfice",
+  credit: "Crédit",
+  apport_personnel: "Apport personnel",
 };
 
 export default function ExpensesPage() {
@@ -123,6 +128,8 @@ export default function ExpensesPage() {
       expense_date: expenseDate,
       owner_id: user?.id,
     });
+    await recordSourceMovement(source, Number(amount), user?.id, `Dépense — ${reason.trim()}`);
+
     setSaving(false);
     resetForm();
     load();
