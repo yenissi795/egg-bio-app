@@ -71,7 +71,7 @@ export default function ProductionPage() {
   const [entries, setEntries] = useState<ProductionEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // États pour les lots
+  // États pour les lots (création liée à un achat de souches, obligatoire)
   const [showFlockForm, setShowFlockForm] = useState(false);
   const [flockName, setFlockName] = useState("");
   const [flockCount, setFlockCount] = useState("");
@@ -80,6 +80,17 @@ export default function ProductionPage() {
   const [flockBreedCustom, setFlockBreedCustom] = useState("");
   const [flockDate, setFlockDate] = useState(new Date().toISOString().slice(0, 10));
   const [flockErrors, setFlockErrors] = useState<Record<string, string>>({});
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const [flockSupplierMode, setFlockSupplierMode] = useState<"existing" | "new">("existing");
+  const [flockSupplierId, setFlockSupplierId] = useState("");
+  const [flockNewSupplierName, setFlockNewSupplierName] = useState("");
+  const [flockNewSupplierPhone, setFlockNewSupplierPhone] = useState("");
+  const [flockPricePerHead, setFlockPricePerHead] = useState("");
+  const [flockAmountPaid, setFlockAmountPaid] = useState("");
+  const [flockPaymentSource, setFlockPaymentSource] = useState("cash");
+  const [flockSource, setFlockSource] = useState("caisse");
+  const [purchasesCount, setPurchasesCount] = useState(0);
+  const [flockSaving, setFlockSaving] = useState(false);
 
   // États pour la mortalité
   const [mortalityFlock, setMortalityFlock] = useState<string | null>(null);
@@ -175,6 +186,8 @@ export default function ProductionPage() {
       { data: prodData },
       { data: reformsData },
       { data: manureData },
+      { data: suppliersData },
+      { count: purchasesCountData },
     ] = await Promise.all([
       supabase.from("flocks").select("*").order("start_date", { ascending: false }),
       supabase.from("flock_mortality").select("*"),
@@ -193,6 +206,8 @@ export default function ProductionPage() {
         .select("*, lot:lot_id(name)")
         .order("created_at", { ascending: false })
         .limit(20),
+      supabase.from("suppliers").select("id, name").order("name"),
+      supabase.from("purchases").select("id", { count: "exact", head: true }),
     ]);
 
     setFlocks((flocksData as Flock[]) || []);
@@ -200,6 +215,8 @@ export default function ProductionPage() {
     setEntries((prodData as ProductionEntry[]) || []);
     setReforms((reformsData as unknown as Reform[]) || []);
     setManureProductions((manureData as unknown as ManureProduction[]) || []);
+    setSuppliers((suppliersData as { id: string; name: string }[]) || []);
+    setPurchasesCount(purchasesCountData || 0);
 
     if (flocksData && flocksData.length > 0) {
       setSelectedFlock((prev) => prev || flocksData[0].id);
@@ -227,6 +244,29 @@ export default function ProductionPage() {
     return Math.max(0, flock.initial_count - lost - reformed);
   };
 
+  const resetFlockForm = () => {
+    setFlockName("");
+    setFlockCount("");
+    setFlockAgeWeeks("");
+    setFlockBreed(breedOptions[0]);
+    setFlockBreedCustom("");
+    setFlockSupplierMode("existing");
+    setFlockSupplierId("");
+    setFlockNewSupplierName("");
+    setFlockNewSupplierPhone("");
+    setFlockPricePerHead("");
+    setFlockAmountPaid("");
+    setFlockPaymentSource("cash");
+    setFlockSource("caisse");
+    setFlockErrors({});
+    setShowFlockForm(false);
+  };
+
+  const flockTotalAmount = (Number(flockCount) || 0) * (Number(flockPricePerHead) || 0);
+
+  // Créer un lot nécessite obligatoirement un achat de souches associé
+  // (fournisseur + prix par tête), pour que le coût apparaisse dans Achats
+  // et impacte correctement la Grande caisse / le Bénéfice.
   const handleCreateFlock = async () => {
     const errors: Record<string, string> = {};
     if (!flockName.trim()) errors.flockName = "Ce champ est obligatoire.";
@@ -235,27 +275,108 @@ export default function ProductionPage() {
       errors.flockBreedCustom = "Précise la race.";
     if (!flockAgeWeeks) errors.flockAgeWeeks = "Ce champ est obligatoire.";
     if (!flockDate) errors.flockDate = "Ce champ est obligatoire.";
+    if (flockSupplierMode === "existing" && !flockSupplierId) {
+      errors.flockSupplierId = "Sélectionne un fournisseur.";
+    }
+    if (flockSupplierMode === "new" && !flockNewSupplierName.trim()) {
+      errors.flockNewSupplierName = "Ce champ est obligatoire.";
+    }
+    if (!flockPricePerHead) errors.flockPricePerHead = "Ce champ est obligatoire.";
+    if (!flockAmountPaid) errors.flockAmountPaid = "Ce champ est obligatoire.";
 
     setFlockErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    const breed = flockBreed === "Autre" ? flockBreedCustom.trim() : flockBreed;
-    await supabase.from("flocks").insert({
-      name: flockName.trim(),
-      initial_count: Number(flockCount),
-      initial_age_weeks: Number(flockAgeWeeks) || 0,
-      breed: breed || null,
-      start_date: flockDate,
-      owner_id: user?.id,
-    });
-    setFlockName("");
-    setFlockCount("");
-    setFlockAgeWeeks("");
-    setFlockBreed(breedOptions[0]);
-    setFlockBreedCustom("");
-    setFlockErrors({});
-    setShowFlockForm(false);
-    load();
+    setFlockSaving(true);
+    try {
+      const breed = flockBreed === "Autre" ? flockBreedCustom.trim() : flockBreed;
+      const headCount = Number(flockCount);
+      const pricePerHead = Number(flockPricePerHead);
+
+      // 1) Fournisseur : créer si besoin
+      let supplierId = flockSupplierId;
+      if (flockSupplierMode === "new") {
+        const { data: newSupplier, error: supplierError } = await supabase
+          .from("suppliers")
+          .insert({
+            name: flockNewSupplierName.trim(),
+            phone: flockNewSupplierPhone.trim() || null,
+            owner_id: user?.id,
+          })
+          .select()
+          .single();
+        if (supplierError || !newSupplier) throw new Error("Erreur création fournisseur");
+        supplierId = newSupplier.id;
+      }
+
+      // 2) Intrant "Souche" correspondant à la race : trouve ou crée
+      const inputName = `Souche ${breed || "Autre"}`;
+      const { data: existingInputs } = await supabase
+        .from("inputs")
+        .select("id, quantity")
+        .eq("name", inputName)
+        .limit(1);
+
+      let inputId: string;
+      if (existingInputs && existingInputs.length > 0) {
+        inputId = existingInputs[0].id;
+        await supabase
+          .from("inputs")
+          .update({ quantity: existingInputs[0].quantity + headCount })
+          .eq("id", inputId);
+      } else {
+        const { data: newInput, error: inputError } = await supabase
+          .from("inputs")
+          .insert({
+            name: inputName,
+            category: "Souches",
+            unit: "Tête",
+            quantity: headCount,
+            owner_id: user?.id,
+          })
+          .select()
+          .single();
+        if (inputError || !newInput) throw new Error("Erreur création intrant");
+        inputId = newInput.id;
+      }
+
+      // 3) Achat correspondant
+      const invoiceNumber = `ACH-${String(purchasesCount + 1).padStart(5, "0")}`;
+      const { error: purchaseError } = await supabase.from("purchases").insert({
+        input_id: inputId,
+        supplier_id: supplierId,
+        quantity: headCount,
+        unit_price: pricePerHead,
+        total_amount: flockTotalAmount,
+        amount_paid: Number(flockAmountPaid),
+        payment_source: flockPaymentSource,
+        source: flockSource,
+        invoice_number: invoiceNumber,
+        notes: `Achat lié à la création du lot "${flockName.trim()}"`,
+        purchase_date: flockDate,
+        owner_id: user?.id,
+      });
+      if (purchaseError) throw new Error("Erreur création achat");
+
+      // 4) Le lot lui-même
+      const { error: flockError } = await supabase.from("flocks").insert({
+        name: flockName.trim(),
+        initial_count: headCount,
+        initial_age_weeks: Number(flockAgeWeeks) || 0,
+        breed: breed || null,
+        start_date: flockDate,
+        owner_id: user?.id,
+      });
+      if (flockError) throw new Error("Erreur création lot");
+
+      resetFlockForm();
+      load();
+    } catch (err: any) {
+      console.error(err);
+      setFlockErrors({ general: err.message || "Erreur lors de la création du lot." });
+    } finally {
+      setFlockSaving(false);
+    }
   };
 
   const handleAddMortality = async (flockId: string) => {
@@ -645,11 +766,152 @@ export default function ProductionPage() {
               )}
             </div>
 
+            <div className="border-t border-green-100 pt-3 mt-1">
+              <p className="text-xs font-semibold text-gray-600 mb-2">
+                Achat lié à ce lot (obligatoire)
+              </p>
+
+              <div className="flex gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setFlockSupplierMode("existing")}
+                  className={`flex-1 text-xs font-medium rounded-lg py-2 ${
+                    flockSupplierMode === "existing" ? "bg-green-600 text-white" : "bg-white text-gray-600"
+                  }`}
+                >
+                  Fournisseur existant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFlockSupplierMode("new")}
+                  className={`flex-1 text-xs font-medium rounded-lg py-2 ${
+                    flockSupplierMode === "new" ? "bg-green-600 text-white" : "bg-white text-gray-600"
+                  }`}
+                >
+                  + Nouveau fournisseur
+                </button>
+              </div>
+
+              {flockSupplierMode === "existing" ? (
+                <div className="mb-2">
+                  <select
+                    value={flockSupplierId}
+                    onChange={(e) => setFlockSupplierId(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${
+                      flockErrors.flockSupplierId ? "border-red-400" : "border-gray-200"
+                    }`}
+                  >
+                    <option value="">Sélectionner un fournisseur</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  {flockErrors.flockSupplierId && (
+                    <p className="text-xs text-red-600 mt-1">{flockErrors.flockSupplierId}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <input
+                      placeholder="Nom du fournisseur"
+                      value={flockNewSupplierName}
+                      onChange={(e) => setFlockNewSupplierName(e.target.value)}
+                      className={`w-full border rounded-lg px-3 py-2 text-sm ${
+                        flockErrors.flockNewSupplierName ? "border-red-400" : "border-gray-200"
+                      }`}
+                    />
+                    {flockErrors.flockNewSupplierName && (
+                      <p className="text-xs text-red-600 mt-1">{flockErrors.flockNewSupplierName}</p>
+                    )}
+                  </div>
+                  <input
+                    placeholder="Téléphone (optionnel)"
+                    value={flockNewSupplierPhone}
+                    onChange={(e) => setFlockNewSupplierPhone(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                <div>
+                  <input
+                    type="number"
+                    placeholder="Prix par tête"
+                    value={flockPricePerHead}
+                    onChange={(e) => setFlockPricePerHead(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${
+                      flockErrors.flockPricePerHead ? "border-red-400" : "border-gray-200"
+                    }`}
+                  />
+                  {flockErrors.flockPricePerHead && (
+                    <p className="text-xs text-red-600 mt-1">{flockErrors.flockPricePerHead}</p>
+                  )}
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    placeholder="Montant payé"
+                    value={flockAmountPaid}
+                    onChange={(e) => setFlockAmountPaid(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm ${
+                      flockErrors.flockAmountPaid ? "border-red-400" : "border-gray-200"
+                    }`}
+                  />
+                  {flockErrors.flockAmountPaid && (
+                    <p className="text-xs text-red-600 mt-1">{flockErrors.flockAmountPaid}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 mb-2">
+                <span className="text-xs font-medium text-gray-500">Montant total</span>
+                <span className="text-sm font-bold text-gray-800">
+                  {flockTotalAmount.toLocaleString("fr-FR")} FCFA
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Mode de paiement</label>
+                  <select
+                    value={flockPaymentSource}
+                    onChange={(e) => setFlockPaymentSource(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="cash">Caisse</option>
+                    <option value="personal">Personnel</option>
+                    <option value="credit">Crédit</option>
+                    <option value="advance">Avance fournisseur</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Source de financement</label>
+                  <select
+                    value={flockSource}
+                    onChange={(e) => setFlockSource(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="caisse">Caisse (n'affecte pas le bénéfice)</option>
+                    <option value="benefice">Bénéfice (déduit comme charge)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {flockErrors.general && (
+              <p className="text-xs text-red-600">{flockErrors.general}</p>
+            )}
+
             <button
               onClick={handleCreateFlock}
-              className="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium"
+              disabled={flockSaving}
+              className="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
-              Créer le lot
+              {flockSaving ? "Création..." : "Créer le lot"}
             </button>
           </div>
         )}

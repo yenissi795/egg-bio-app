@@ -15,7 +15,6 @@ import {
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const isToday = (iso: string) => iso.slice(0, 10) === todayStr();
-
 export default function CashPage() {
   const fmt = useCurrencyFormatter();
   const [sales, setSales] = useState<any[]>([]);
@@ -62,8 +61,9 @@ export default function CashPage() {
   const chiffreAffaires = sales.reduce((s, v) => s + v.total_amount, 0);
 
   const totalAchats = purchases.reduce((s, p) => s + p.total_amount, 0);
+  const achatsSurBenefice = purchases.filter((p) => p.source === "benefice").reduce((s, p) => s + p.total_amount, 0);
   const depensesSurBenefice = expenses.filter((e) => e.source === "benefice").reduce((s, e) => s + e.amount, 0);
-  const benefice = chiffreAffaires - totalAchats - depensesSurBenefice;
+  const benefice = chiffreAffaires - achatsSurBenefice - depensesSurBenefice;
 
   const capital = cashTx
     .filter((t) => t.type === "injection")

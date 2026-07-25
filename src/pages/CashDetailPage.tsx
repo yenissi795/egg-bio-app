@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { useCurrencyFormatter } from "../context/SettingsContext";
 import { ArrowLeft } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -11,8 +12,6 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-
-const fmt = (n: number) => n.toLocaleString("fr-FR") + " FCFA";
 
 const typeConfig: Record<string, { title: string }> = {
   revenue: { title: "Chiffre d'affaires" },
@@ -26,6 +25,7 @@ const monthLabel = (d: Date) =>
   d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", "");
 
 export default function CashDetailPage() {
+  const fmt = useCurrencyFormatter();
   const { type } = useParams<{ type: string }>();
   const [sales, setSales] = useState<any[]>([]);
   const [purchases, setPurchases] = useState<any[]>([]);
@@ -41,7 +41,7 @@ export default function CashDetailPage() {
           .from("sales")
           .select("id, invoice_number, total_amount, amount_paid, created_at, clients(name)")
           .order("created_at", { ascending: false }),
-        supabase.from("purchases").select("id, total_amount, created_at"),
+        supabase.from("purchases").select("id, total_amount, created_at, source"),
         supabase.from("expenses").select("id, amount, created_at, source"),
         supabase.from("cash_transactions").select("*").order("created_at", { ascending: false }),
       ]);
@@ -155,7 +155,9 @@ export default function CashDetailPage() {
   if (type === "profit") {
     const netFor = (predicate: (iso: string) => boolean) => {
       const rev = sales.filter((s) => predicate(s.created_at)).reduce((s, v) => s + v.total_amount, 0);
-      const ach = purchases.filter((p) => predicate(p.created_at)).reduce((s, p) => s + p.total_amount, 0);
+      const ach = purchases
+        .filter((p) => predicate(p.created_at) && p.source === "benefice")
+        .reduce((s, p) => s + p.total_amount, 0);
       const dep = expenses
         .filter((e) => predicate(e.created_at) && e.source === "benefice")
         .reduce((s, e) => s + e.amount, 0);
@@ -180,7 +182,9 @@ export default function CashDetailPage() {
       };
       const rev = sales.filter((s) => pred(s.created_at)).reduce((s, v) => s + v.total_amount, 0);
       const charges =
-        purchases.filter((p) => pred(p.created_at)).reduce((s, p) => s + p.total_amount, 0) +
+        purchases
+          .filter((p) => pred(p.created_at) && p.source === "benefice")
+          .reduce((s, p) => s + p.total_amount, 0) +
         expenses
           .filter((e) => pred(e.created_at) && e.source === "benefice")
           .reduce((s, e) => s + e.amount, 0);

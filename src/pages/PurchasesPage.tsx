@@ -96,6 +96,7 @@ export default function PurchasesPage() {
   const [amountPaid, setAmountPaid] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
+  const [source, setSource] = useState("caisse");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -140,6 +141,7 @@ export default function PurchasesPage() {
     setAmountPaid("");
     setPurchaseDate(new Date().toISOString().slice(0, 10));
     setNotes("");
+    setSource("caisse");
     setErrors({});
     setShowForm(false);
   };
@@ -230,6 +232,7 @@ export default function PurchasesPage() {
       total_amount: totalAmount,
       amount_paid: Number(amountPaid),
       payment_source: paymentSource,
+      source,
       invoice_number: nextInvoiceNumber,
       notes: notes.trim() || null,
       purchase_date: purchaseDate,
@@ -618,6 +621,20 @@ export default function PurchasesPage() {
             onChange={(e) => setNotes(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
           />
+
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Source de financement
+            </label>
+            <select
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="caisse">Caisse (n'affecte pas le bénéfice)</option>
+              <option value="benefice">Bénéfice (déduit comme charge)</option>
+            </select>
+          </div>
 
           <button
             onClick={handleSubmit}

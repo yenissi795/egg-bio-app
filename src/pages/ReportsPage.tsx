@@ -41,7 +41,7 @@ export default function ReportsPage() {
       { data: clientsData },
     ] = await Promise.all([
       supabase.from("sales").select("id, total_amount, amount_paid, created_at"),
-      supabase.from("purchases").select("id, total_amount, amount_paid, created_at"),
+      supabase.from("purchases").select("id, total_amount, amount_paid, created_at, source"),
       supabase.from("expenses").select("id, amount, source, created_at"),
       supabase.from("cash_transactions").select("*"),
       supabase.from("products").select("id, name, category, unit, cost_price, sale_price, quantity"),
@@ -89,7 +89,9 @@ export default function ReportsPage() {
       period === "day" ? isSameDay : period === "month" ? isSameMonth : period === "year" ? isSameYear : () => true;
 
     const ca = sales.filter((s) => predicate(s.created_at)).reduce((s, v) => s + v.total_amount, 0);
-    const ach = purchases.filter((p) => predicate(p.created_at)).reduce((s, p) => s + p.total_amount, 0);
+    const ach = purchases
+      .filter((p) => predicate(p.created_at) && p.source === "benefice")
+      .reduce((s, p) => s + p.total_amount, 0);
     const dep = expenses
       .filter((e) => predicate(e.created_at) && e.source === "benefice")
       .reduce((s, e) => s + e.amount, 0);
