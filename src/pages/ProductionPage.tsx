@@ -53,6 +53,7 @@ interface ManureProduction {
 const breedOptions = ["ISA Brown", "Lohmann Brown", "Hy-Line Brown", "Autre"];
 const REFORM_AGE_WEEKS = 70;
 const PLAQUETTE = 30;
+const AMORTIZATION_MONTHS = 12;
 
 const sourceOptions = [
   { value: "caisse", label: "Caisse" },
@@ -70,13 +71,11 @@ const ageInWeeks = (flock: Flock) => {
 export default function ProductionPage() {
   const { user } = useAuth();
 
-  // --- États existants ---
   const [flocks, setFlocks] = useState<Flock[]>([]);
   const [mortalities, setMortalities] = useState<Mortality[]>([]);
   const [entries, setEntries] = useState<ProductionEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Lots — création liée obligatoirement à un achat
   const [showFlockForm, setShowFlockForm] = useState(false);
   const [flockName, setFlockName] = useState("");
   const [flockCount, setFlockCount] = useState("");
@@ -97,12 +96,10 @@ export default function ProductionPage() {
   const [purchasesCount, setPurchasesCount] = useState(0);
   const [flockSaving, setFlockSaving] = useState(false);
 
-  // Mortalité
   const [mortalityFlock, setMortalityFlock] = useState<string | null>(null);
   const [mortalityCount, setMortalityCount] = useState("");
   const [mortalityError, setMortalityError] = useState("");
 
-  // Ponte — par plaquettes uniquement, plus de calibres
   const [selectedFlock, setSelectedFlock] = useState("");
   const [prodDate, setProdDate] = useState(new Date().toISOString().slice(0, 10));
   const [plaquettes, setPlaquettes] = useState("");
@@ -113,7 +110,6 @@ export default function ProductionPage() {
   const [globalError, setGlobalError] = useState("");
   const [statsPeriod, setStatsPeriod] = useState<"day" | "week" | "year">("day");
 
-  // Réforme
   const [reformFlockId, setReformFlockId] = useState("");
   const [reformNbHeads, setReformNbHeads] = useState("");
   const [reformObservations, setReformObservations] = useState("");
@@ -121,7 +117,6 @@ export default function ProductionPage() {
   const [reformSaving, setReformSaving] = useState(false);
   const [reforms, setReforms] = useState<Reform[]>([]);
 
-  // Fumier
   const [manureFlockId, setManureFlockId] = useState("");
   const [manureQuantity, setManureQuantity] = useState("");
   const [manureObservations, setManureObservations] = useState("");
@@ -129,7 +124,6 @@ export default function ProductionPage() {
   const [manureSaving, setManureSaving] = useState(false);
   const [manureProductions, setManureProductions] = useState<ManureProduction[]>([]);
 
-  // --- Mise à jour générique du stock produit ---
   const updateProductStock = async (
     productName: string,
     category: string,
@@ -169,6 +163,57 @@ export default function ProductionPage() {
     });
     if (insertError) return { ok: false, name: productName, error: insertError.message };
     return { ok: true, name: productName };
+  };
+
+  // --- Recalcul automatique du prix de revient réel de "Plaquette d'œufs" ---
+  const recalcEggCostPrice = async () => {
+    const now = new Date();
+    const isThisMonth = (iso: string) => {
+      const d = new Date(iso);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    };
+
+    const [{ data: purchasesData }, { data: eggProdData }] = await Promise.all([
+      supabase.from("purchases").select("total_amount, created_at, inputs(category)"),
+      supabase.from("egg_production").select("plaquettes, production_date, created_at"),
+    ]);
+
+    const purchasesList = purchasesData || [];
+    const eggProdList = eggProdData || [];
+
+    const coutAlimentMois = purchasesList
+      .filter((p: any) => p.inputs?.category === "Aliments pour bétail" && isThisMonth(p.created_at))
+      .reduce((s: number, p: any) => s + p.total_amount, 0);
+
+    const coutSanteMois = purchasesList
+      .filter((p: any) => p.inputs?.category === "Santé animale" && isThisMonth(p.created_at))
+      .reduce((s: number, p: any) => s + p.total_amount, 0);
+
+    const totalInvestSouches = purchasesList
+      .filter((p: any) => p.inputs?.category === "Souches")
+      .reduce((s: number, p: any) => s + p.total_amount, 0);
+    const amortissementMensuel = totalInvestSouches / AMORTIZATION_MONTHS;
+
+    const plaquettesMois = eggProdList
+      .filter((e: any) => isThisMonth(e.production_date || e.created_at))
+      .reduce((s: number, e: any) => s + (e.plaquettes || 0), 0);
+
+    if (plaquettesMois <= 0) return;
+
+    const coutRevientParPlaquette = (coutAlimentMois + coutSanteMois + amortissementMensuel) / plaquettesMois;
+
+    const { data: eggProducts } = await supabase
+      .from("products")
+      .select("id")
+      .eq("name", "Plaquette d'œufs")
+      .limit(1);
+
+    if (eggProducts && eggProducts.length > 0) {
+      await supabase
+        .from("products")
+        .update({ cost_price: Math.round(coutRevientParPlaquette) })
+        .eq("id", eggProducts[0].id);
+    }
   };
 
   const load = async () => {
@@ -252,7 +297,6 @@ export default function ProductionPage() {
 
   const flockTotalAmount = (Number(flockCount) || 0) * (Number(flockPricePerHead) || 0);
 
-  // Créer un lot nécessite obligatoirement un achat de souches associé.
   const handleCreateFlock = async () => {
     const errors: Record<string, string> = {};
     if (!flockName.trim()) errors.flockName = "Ce champ est obligatoire.";
@@ -325,7 +369,6 @@ export default function ProductionPage() {
       });
       if (purchaseError) throw new Error("Erreur création achat");
 
-      // Impact réel sur la Grande caisse selon la source choisie
       await recordSourceMovement(
         flockSource,
         amountPaid,
@@ -342,6 +385,8 @@ export default function ProductionPage() {
         owner_id: user?.id,
       });
       if (flockError) throw new Error("Erreur création lot");
+
+      await recalcEggCostPrice();
 
       resetFlockForm();
       load();
@@ -405,8 +450,8 @@ export default function ProductionPage() {
       const results = await Promise.all([
         updateProductStock("Plaquette d'œufs", "Plaquette d'œufs", "Plaquette (30 œufs)", plq),
       ]);
-      // Les œufs cassés (c) restent uniquement dans egg_production, à titre informatif
-      // (taux de casse pour l'Optimisation) — ils ne créent plus de stock produit.
+
+      await recalcEggCostPrice();
 
       const failures = results.filter((r) => !r.ok);
       if (failures.length > 0) {
@@ -508,7 +553,6 @@ export default function ProductionPage() {
     }
   };
 
-  // --- Indicateurs ---
   const totalHens = flocks
     .filter((f) => f.status === "laying")
     .reduce((sum, f) => sum + currentCount(f.id), 0);
@@ -528,7 +572,6 @@ export default function ProductionPage() {
   const rateColor =
     rateNum === 0 ? "text-gray-400" : rateNum >= 85 ? "text-green-600" : rateNum >= 70 ? "text-amber-600" : "text-red-600";
 
-  // --- Stats par période (Jour / Semaine / Année), œufs ET plaquettes ---
   const inStatsPeriod = (dateStr: string) => {
     const d = new Date(dateStr);
     if (statsPeriod === "day") return dateStr === todayStr;
@@ -614,7 +657,6 @@ export default function ProductionPage() {
         </div>
       </div>
 
-      {/* Lots */}
       <div className="stat-card space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-gray-700 text-sm">Lots de poules</h2>
@@ -872,7 +914,6 @@ export default function ProductionPage() {
         )}
       </div>
 
-      {/* Saisie de la ponte — par plaquettes */}
       <div className="stat-card space-y-3">
         <h2 className="font-semibold text-gray-700 text-sm">Saisir la ponte du jour</h2>
 
@@ -938,7 +979,6 @@ export default function ProductionPage() {
         </button>
       </div>
 
-      {/* Réforme */}
       <div className="stat-card space-y-3">
         <h2 className="font-semibold text-gray-700 text-sm">Réforme des poules</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -971,7 +1011,6 @@ export default function ProductionPage() {
         </button>
       </div>
 
-      {/* Fumier */}
       <div className="stat-card space-y-3">
         <h2 className="font-semibold text-gray-700 text-sm">Production de fumier</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1005,7 +1044,6 @@ export default function ProductionPage() {
         </button>
       </div>
 
-      {/* Historique des pontes */}
       <div className="stat-card overflow-x-auto">
         <h2 className="font-semibold text-gray-700 text-sm mb-3">Historique des pontes</h2>
         {loading ? (
@@ -1047,7 +1085,6 @@ export default function ProductionPage() {
         )}
       </div>
 
-      {/* Historique des réformes */}
       <div className="stat-card overflow-x-auto">
         <h2 className="font-semibold text-gray-700 text-sm mb-3">Historique des réformes</h2>
         {reforms.length === 0 ? (
@@ -1076,7 +1113,6 @@ export default function ProductionPage() {
         )}
       </div>
 
-      {/* Historique du fumier */}
       <div className="stat-card overflow-x-auto">
         <h2 className="font-semibold text-gray-700 text-sm mb-3">Historique du fumier</h2>
         {manureProductions.length === 0 ? (
